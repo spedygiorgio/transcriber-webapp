@@ -188,7 +188,34 @@
     }
 
     // ---------------- Decodifica + resample a 16 kHz mono ----------------
-    async function decodeToMono16k(arrayBuffer) {
+    // I file Ogg/Opus di WhatsApp NON si possono decodificare con
+    // AudioContext.decodeAudioData: Chrome li tronca a pochi secondi, e il
+    // modello finisce per allucinare. Per questi usiamo libopus (WASM), che
+    // decodifica l'intero file e restituisce già 16 kHz mono.
+    async function decodeOpusTo16k(arrayBuffer) {
+      const { OggOpusDecoder } = await import('https://cdn.jsdelivr.net/npm/ogg-opus-decoder@1/+esm');
+      const decoder = new OggOpusDecoder({ sampleRate: 16000, forceStereo: false });
+      await decoder.ready;
+      try {
+        const data = new Uint8Array(arrayBuffer);
+        const res = decoder.decodeFile
+          ? await decoder.decodeFile(data)
+          : await (async () => {
+              const a = await decoder.decode(data);
+              const b = await decoder.flush();
+              const out = new Float32Array((a.channelData[0]?.length || 0) + (b.channelData[0]?.length || 0));
+              out.set(a.channelData[0] || [], 0);
+              out.set(b.channelData[0] || [], a.channelData[0]?.length || 0);
+              return { channelData: [out] };
+            })();
+        return res.channelData[0];
+      } finally {
+        try { decoder.free(); } catch (_) {}
+      }
+    }
+
+    // Decodifica via Web Audio (ottima per mp3/m4a/wav/flac/webm), con resample.
+    async function decodeViaWebAudio(arrayBuffer) {
       const AC = window.AudioContext || window.webkitAudioContext;
       const tmp = new AC();
       let decoded;
@@ -208,6 +235,24 @@
       return rendered.getChannelData(0);
     }
 
+    async function decodeTo16kMono(file, arrayBuffer) {
+      const name = (file.name || '').toLowerCase();
+      const type = (file.type || '').toLowerCase();
+      const isOpus = /\.(opus|ogg|oga)$/.test(name) || type.includes('ogg') || type.includes('opus');
+      if (isOpus) {
+        try { return await decodeOpusTo16k(arrayBuffer); }
+        catch (e) { return await decodeViaWebAudio(arrayBuffer); } // fallback estremo
+      }
+      return await decodeViaWebAudio(arrayBuffer);
+    }
+
+    // True se l'audio è (quasi) silenzio: evita che il modello inventi testo.
+    function isSilent(samples) {
+      let peak = 0;
+      for (let i = 0; i < samples.length; i += 97) { const a = Math.abs(samples[i]); if (a > peak) peak = a; }
+      return peak < 0.003;
+    }
+
     async function handleAudioFile(file) {
       try {
         currentName = (file.name || 'vocale').replace(/\.[^.]+$/, '');
@@ -219,7 +264,9 @@
 
         setProgress('Decodifica audio...', null, false);
         const buf = await file.arrayBuffer();
-        const audio = await decodeToMono16k(buf);
+        const audio = await decodeTo16kMono(file, buf);
+        if (!audio || audio.length < 1600) { hideProgress(); showToast('Audio troppo corto o non decodificabile.', true); return; }
+        if (isSilent(audio)) { hideProgress(); showToast('Nessun parlato rilevato (audio silenzioso).', true); return; }
         const w = initWorker();
         w.postMessage({
           type: 'transcribe',
