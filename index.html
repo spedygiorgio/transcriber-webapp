@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#020617" />
-  <title>Transcriber Web • 100% Locale Rust WASM + Piccolo LLM</title>
+  <title>Transcriber Web • 100% Locale (Whisper WebGPU)</title>
   <script src="./coi-serviceworker.js"></script>
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/svg+xml" href="./icon.svg" />
@@ -14,8 +14,8 @@
   <header class="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
     <div class="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between">
       <div>
-        <h1 class="font-bold text-lg text-white">Transcriber Web (Zero-API • Rust WASM)</h1>
-        <p class="text-xs text-slate-400">100% locale nel browser • OPFS Cache • Adaptive Hardware Guard</p>
+        <h1 class="font-bold text-lg text-white">Transcriber Web (Zero-API • Whisper WebGPU)</h1>
+        <p class="text-xs text-slate-400">100% locale nel browser • transformers.js • cache offline</p>
       </div>
       <button id="btnReleaseRam" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium">Libera RAM</button>
     </div>
@@ -27,179 +27,433 @@
     <section class="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4">
       <div class="flex items-center justify-between">
         <div>
-          <h2 class="text-sm font-bold uppercase text-slate-200">Profilo Hardware Rilevato & Guardia Memoria</h2>
+          <h2 class="text-sm font-bold uppercase text-slate-200">Profilo hardware & motore</h2>
           <p id="hwSummaryText" class="text-xs text-slate-400 mt-0.5">Analisi dispositivo...</p>
         </div>
         <span id="hwTierBadge" class="px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">--</span>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-800">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-slate-800">
         <div class="space-y-2">
-          <label class="block text-xs font-semibold text-slate-300">Modello Trascrizione Rust (transcriber-core)</label>
+          <label class="block text-xs font-semibold text-slate-300">Modello Whisper (ONNX)</label>
           <select id="selectWhisperModel" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white">
-            <option value="tiny">ggml-tiny.bin (75 MB - Ideale &lt; 4GB RAM)</option>
-            <option value="base">ggml-base.bin (142 MB - Bilanciato leggero)</option>
-            <option value="small-q5_1" selected>ggml-small-q5_1.bin (181 MB - Consigliato per Italiano)</option>
-            <option value="small">ggml-small.bin (466 MB - Solo Desktop 8+ GB RAM)</option>
+            <option value="tiny">whisper-tiny (~40 MB • veloce, mobile)</option>
+            <option value="base" selected>whisper-base (~80 MB • bilanciato)</option>
+            <option value="small">whisper-small (~250 MB • qualità • desktop)</option>
           </select>
-          <div class="flex justify-between text-[11px] text-slate-400">
-            <span id="opfsStatusText">Cache OPFS: verifica...</span>
-            <button id="btnPreloadModel" class="text-emerald-400 hover:underline font-semibold">Pre-scarica in OPFS</button>
-          </div>
+          <span id="opfsStatusText" class="block text-[11px] text-slate-400">Cache: verifica al primo uso</span>
         </div>
 
         <div class="space-y-2">
-          <label class="block text-xs font-semibold text-slate-300">Motore Riassunto 100% Locale (Zero API)</label>
-          <select id="selectSummaryEngine" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white">
-            <option value="rust-extractive">Kernel Rust TextRank (0 MB RAM • Istantaneo)</option>
-            <option value="webllm-smol">Piccolo LLM WebGPU: SmolLM2-1.7B-Instruct (~950 MB VRAM)</option>
-            <option value="webllm-qwen">Piccolo LLM WebGPU: Qwen2.5-1.5B-Instruct (~1.1 GB VRAM)</option>
+          <label class="block text-xs font-semibold text-slate-300">Lingua</label>
+          <select id="selectLanguage" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white">
+            <option value="italian" selected>Italiano</option>
+            <option value="english">Inglese</option>
+            <option value="auto">Rilevamento automatico</option>
           </select>
         </div>
-      </div>
 
-      <div>
-        <label class="block text-xs font-semibold text-slate-300 mb-1">Vocabolario Nomi Propri (initial_prompt)</label>
-        <input id="inputInitialPrompt" type="text" value="Giorgio, Fausta, Paderno, miscelatore, disinfestazione" class="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white" />
+        <div class="space-y-2">
+          <label class="block text-xs font-semibold text-slate-300">Motore riassunto (locale)</label>
+          <select id="selectSummaryEngine" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white">
+            <option value="rust-extractive">TextRank estrattivo (0 MB • istantaneo)</option>
+            <option value="webllm-smol">WebLLM: SmolLM2-1.7B (~950 MB VRAM)</option>
+            <option value="webllm-qwen">WebLLM: Qwen2.5-1.5B (~1.1 GB VRAM)</option>
+          </select>
+        </div>
       </div>
     </section>
 
     <section class="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-3">
       <div id="dropZone" class="border-2 border-dashed border-slate-700 hover:border-emerald-500/70 bg-slate-950/60 rounded-2xl p-6 cursor-pointer space-y-3">
-        <h2 class="text-lg font-bold text-white">Trascina o scegli un vocale WhatsApp (.opus, .ogg, .m4a, .mp3, .wav)</h2>
-        <div class="flex justify-center gap-2.5">
-          <span class="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs">Scegli File Audio</span>
-          <button type="button" id="btnDemoTest" class="px-3.5 py-2 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 text-xs">Testa con Vocale Demo</button>
+        <h2 class="text-lg font-bold text-white">Trascina o scegli un vocale (.opus, .ogg, .m4a, .mp3, .wav, .flac, .webm)</h2>
+        <div class="flex justify-center flex-wrap gap-2.5">
+          <span class="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs">Scegli file audio</span>
+          <button type="button" id="btnRecord" class="px-3.5 py-2 rounded-xl bg-rose-500/90 text-slate-950 font-bold text-xs">● Registra dal microfono</button>
+          <button type="button" id="btnDemoTest" class="px-3.5 py-2 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 text-xs">Testa con vocale demo</button>
         </div>
         <input id="audioFileInput" type="file" accept=".opus,.ogg,.m4a,.mp3,.wav,.flac,.webm,audio/*" class="hidden" />
       </div>
+
       <div id="workerProgressBox" class="hidden p-4 rounded-2xl bg-slate-950 border border-emerald-500/30 space-y-2 text-left">
-        <div class="flex justify-between text-xs"><span id="workerStatusLabel" class="text-emerald-300">Inizializzazione...</span><span id="workerStatusPct" class="font-mono text-emerald-400">--</span></div>
-        <div class="w-full h-2 bg-slate-900 rounded-full overflow-hidden"><div id="workerProgressBar" class="h-full bg-emerald-500" style="width: 15%"></div></div>
+        <div class="flex justify-between text-xs">
+          <span id="workerStatusLabel" class="text-emerald-300">Inizializzazione...</span>
+          <span id="workerStatusPct" class="font-mono text-emerald-400">--</span>
+        </div>
+        <div class="w-full h-2 bg-slate-900 rounded-full overflow-hidden"><div id="workerProgressBar" class="h-full bg-emerald-500 transition-all" style="width: 10%"></div></div>
+        <button id="btnCancel" class="hidden mt-1 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-200">Annulla</button>
       </div>
     </section>
 
     <section id="resultSection" class="hidden space-y-5">
       <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-        <div class="flex justify-between items-center pb-3 border-b border-slate-800">
-          <div><h3 class="font-bold text-white">Trascrizione Locale (Rust WASM)</h3><p id="transcriptMetrics" class="text-[11px] font-mono text-slate-400">--</p></div>
-          <button id="btnCopyTranscript" class="px-3.5 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs">Copia Trascrizione</button>
+        <div class="flex justify-between items-center pb-3 border-b border-slate-800 flex-wrap gap-2">
+          <div>
+            <h3 class="font-bold text-white">Trascrizione locale</h3>
+            <p id="transcriptMetrics" class="text-[11px] font-mono text-slate-400">--</p>
+          </div>
+          <div class="flex gap-1.5 flex-wrap">
+            <button id="btnCopyTranscript" class="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs">Copia</button>
+            <button id="btnExportTxt" class="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs">.txt</button>
+            <button id="btnExportMd" class="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs">.md</button>
+            <button id="btnExportSrt" class="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs">.srt</button>
+          </div>
         </div>
-        <p id="transcriptTextOutput" class="text-base text-slate-100 leading-relaxed"></p>
+        <audio id="audioPlayer" controls class="w-full hidden"></audio>
+        <div id="transcriptTextOutput" class="text-base text-slate-100 leading-relaxed"></div>
       </div>
+
       <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-        <div class="flex justify-between items-center pb-3 border-b border-slate-800">
-          <h3 class="font-bold text-white">Riassunto 100% Locale <span id="summaryEngineBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/20 text-purple-300">--</span></h3>
+        <div class="flex justify-between items-center pb-3 border-b border-slate-800 flex-wrap gap-2">
+          <h3 class="font-bold text-white">Riassunto locale <span id="summaryEngineBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/20 text-purple-300">--</span></h3>
           <div class="flex gap-1.5">
             <button id="btnSumBrief" class="px-3 py-1 rounded-lg bg-slate-800 text-xs">Breve</button>
-            <button id="btnSumPoints" class="px-3 py-1 rounded-lg bg-purple-500 text-slate-950 font-bold text-xs">Punti Chiave</button>
+            <button id="btnSumPoints" class="px-3 py-1 rounded-lg bg-purple-500 text-slate-950 font-bold text-xs">Punti chiave</button>
           </div>
         </div>
         <div id="summaryTextOutput" class="text-sm text-slate-200 whitespace-pre-line bg-slate-950 p-4 rounded-2xl border border-slate-800"></div>
       </div>
     </section>
+
+    <section id="historySection" class="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-3">
+      <div class="flex justify-between items-center">
+        <h3 class="text-sm font-bold uppercase text-slate-200">Storico locale (IndexedDB)</h3>
+        <button id="btnClearHistory" class="text-[11px] text-rose-400 hover:underline">Svuota</button>
+      </div>
+      <ul id="historyList" class="space-y-1.5 text-xs text-slate-300"></ul>
+    </section>
   </main>
 
   <script>
+    // ---------------- Profilo hardware ----------------
     const ram = navigator.deviceMemory || 4;
     const cores = navigator.hardwareConcurrency || 4;
     const gpu = !!navigator.gpu;
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const recThreads = isMobile ? Math.min(4, Math.max(2, Math.floor(cores / 2))) : Math.min(6, Math.max(2, Math.floor(cores * 0.75)));
-    const recWhisper = (ram < 4 || (isMobile && ram <= 4)) ? 'tiny' : 'small-q5_1';
+    const recWhisper = (ram < 4 || isMobile) ? 'tiny' : (ram >= 8 && !isMobile ? 'small' : 'base');
     const recSum = (ram >= 8 && gpu && !isMobile) ? 'webllm-smol' : 'rust-extractive';
+    const preferWebgpu = gpu;
 
-    document.getElementById('hwTierBadge').textContent = `RAM ~${ram}GB • ${recThreads} Thread • ${gpu ? 'WebGPU' : 'CPU SIMD'}`;
-    document.getElementById('hwSummaryText').textContent = `Configurazione sicura selezionata: ggml-${recWhisper}.bin + ${recSum === 'rust-extractive' ? 'Rust TextRank (0 MB RAM)' : 'WebLLM WebGPU'}.`;
+    document.getElementById('hwTierBadge').textContent = `RAM ~${ram}GB • ${gpu ? 'WebGPU' : 'CPU/WASM'}`;
+    document.getElementById('hwSummaryText').textContent =
+      `Configurazione consigliata: whisper-${recWhisper} + ${recSum === 'rust-extractive' ? 'TextRank' : 'WebLLM'}. Motore STT: ${gpu ? 'WebGPU' : 'WASM (nessuna GPU rilevata)'}.`;
     document.getElementById('selectWhisperModel').value = recWhisper;
     document.getElementById('selectSummaryEngine').value = recSum;
 
-    let worker = null, currentText = '', currentStyle = 'KeyPoints', liveSegs = [];
+    // ---------------- Stato ----------------
+    let worker = null, currentText = '', currentSegments = [], currentStyle = 'KeyPoints';
+    let currentAudioUrl = null, currentName = 'vocale';
+    let mediaRecorder = null, recChunks = [], recording = false;
+
+    const $ = (id) => document.getElementById(id);
     function showToast(msg, err = false) {
-      const b = document.getElementById('toastBox');
+      const b = $('toastBox');
       b.textContent = msg;
       b.className = `rounded-2xl p-3.5 text-xs font-medium border ${err ? 'bg-red-950/80 border-red-500/40 text-red-200' : 'bg-emerald-950/80 border-emerald-500/40 text-emerald-200'}`;
       b.classList.remove('hidden');
-      setTimeout(() => b.classList.add('hidden'), 4500);
+      setTimeout(() => b.classList.add('hidden'), 5000);
     }
+    function setProgress(label, pct, showCancel) {
+      $('workerProgressBox').classList.remove('hidden');
+      $('workerStatusLabel').textContent = label;
+      $('workerStatusPct').textContent = pct == null ? '' : `${pct}%`;
+      $('workerProgressBar').style.width = `${pct == null ? 100 : pct}%`;
+      $('btnCancel').classList.toggle('hidden', !showCancel);
+    }
+    function hideProgress() { $('workerProgressBox').classList.add('hidden'); }
 
+    // ---------------- Worker ----------------
     function initWorker() {
       if (worker) return worker;
       worker = new Worker('./worker.js', { type: 'module' });
       worker.onmessage = (e) => {
         const m = e.data;
-        if (m.type === 'models-list') {
-          const sel = document.getElementById('selectWhisperModel').value;
-          const f = m.installed.find(x => x.id === sel);
-          document.getElementById('opfsStatusText').textContent = f ? `Cache OPFS: ggml-${sel}.bin pronto (${(f.sizeBytes / 1048576).toFixed(0)} MB)` : `Cache OPFS: ggml-${sel}.bin non scaricato`;
+        if (m.type === 'model-progress') setProgress(`Download modello (${m.file || ''})...`, m.percent, true);
+        else if (m.type === 'model-ready') { $('opfsStatusText').textContent = `Modello pronto • backend: ${m.device}`; }
+        else if (m.type === 'transcribe-started') setProgress('Trascrizione in corso...', null, true);
+        else if (m.type === 'llm-progress') setProgress(m.message || 'Download LLM...', m.percent, false);
+        else if (m.type === 'notice') showToast(m.message);
+        else if (m.type === 'transcription-done') onTranscriptionDone(m.transcript);
+        else if (m.type === 'summary-done') {
+          hideProgress();
+          $('summaryTextOutput').textContent = m.summary;
+          $('summaryEngineBadge').textContent = m.engineUsed;
         }
-        if (m.type === 'download-progress' || m.type === 'llm-progress') {
-          document.getElementById('workerProgressBox').classList.remove('hidden');
-          document.getElementById('workerStatusLabel').textContent = m.message || `Download ${m.modelId} su OPFS...`;
-          document.getElementById('workerStatusPct').textContent = `${m.percent}%`;
-          document.getElementById('workerProgressBar').style.width = `${m.percent}%`;
-        }
-        if (m.type === 'download-complete') { document.getElementById('workerProgressBox').classList.add('hidden'); showToast(`Modello ggml-${m.modelId}.bin salvato su OPFS!`); }
-        if (m.type === 'live-segment') {
-          liveSegs.push(m.segment);
-          document.getElementById('resultSection').classList.remove('hidden');
-          document.getElementById('transcriptTextOutput').textContent = liveSegs.map(s => s.text).join(' ');
-        }
-        if (m.type === 'transcription-done') {
-          document.getElementById('workerProgressBox').classList.add('hidden');
-          currentText = m.transcript.text;
-          document.getElementById('resultSection').classList.remove('hidden');
-          document.getElementById('transcriptTextOutput').textContent = currentText;
-          document.getElementById('transcriptMetrics').textContent = `Audio: ${(m.transcript.audio_duration_ms / 1000).toFixed(1)}s • Inferenza: ${m.transcript.inference_ms}ms`;
-          runSummary(currentText, currentStyle);
-        }
-        if (m.type === 'summary-done') {
-          document.getElementById('workerProgressBox').classList.add('hidden');
-          document.getElementById('summaryTextOutput').textContent = m.summary;
-          document.getElementById('summaryEngineBadge').textContent = m.engineUsed;
-        }
-        if (m.type === 'memory-released') showToast('Memoria RAM / VRAM liberata.');
-        if (m.type === 'error') { document.getElementById('workerProgressBox').classList.add('hidden'); showToast(m.message, true); }
+        else if (m.type === 'memory-released') { showToast('Memoria liberata.'); }
+        else if (m.type === 'error') { hideProgress(); showToast(m.message, true); }
       };
-      worker.postMessage({ type: 'list-models' });
       return worker;
     }
 
+    // ---------------- Decodifica + resample a 16 kHz mono ----------------
+    async function decodeToMono16k(arrayBuffer) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      const tmp = new AC();
+      let decoded;
+      try {
+        decoded = await tmp.decodeAudioData(arrayBuffer.slice(0));
+      } finally {
+        try { await tmp.close(); } catch (_) {}
+      }
+      const targetRate = 16000;
+      const frames = Math.max(1, Math.ceil(decoded.duration * targetRate));
+      const off = new OfflineAudioContext(1, frames, targetRate);
+      const src = off.createBufferSource();
+      src.buffer = decoded;
+      src.connect(off.destination);
+      src.start(0);
+      const rendered = await off.startRendering();
+      return rendered.getChannelData(0);
+    }
+
+    async function handleAudioFile(file) {
+      try {
+        currentName = (file.name || 'vocale').replace(/\.[^.]+$/, '');
+        if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
+        currentAudioUrl = URL.createObjectURL(file);
+        const player = $('audioPlayer');
+        player.src = currentAudioUrl;
+        player.classList.remove('hidden');
+
+        setProgress('Decodifica audio...', null, false);
+        const buf = await file.arrayBuffer();
+        const audio = await decodeToMono16k(buf);
+        const w = initWorker();
+        w.postMessage({
+          type: 'transcribe',
+          audio,
+          modelId: $('selectWhisperModel').value,
+          language: $('selectLanguage').value,
+          preferWebgpu,
+        }, [audio.buffer]);
+      } catch (err) {
+        hideProgress();
+        showToast(`Impossibile decodificare l'audio: ${err.message}. Su alcuni browser (es. Safari) i file .opus potrebbero non essere supportati.`, true);
+      }
+    }
+
+    function onTranscriptionDone(t) {
+      hideProgress();
+      currentText = t.text;
+      currentSegments = t.segments || [];
+      $('resultSection').classList.remove('hidden');
+      renderTranscript();
+      $('transcriptMetrics').textContent =
+        `Audio: ${(t.audio_duration_ms / 1000).toFixed(1)}s • Inferenza: ${(t.inference_ms / 1000).toFixed(1)}s • ${t.device}`;
+      saveToHistory(t);
+      runSummary(currentText, currentStyle);
+    }
+
+    function renderTranscript() {
+      const box = $('transcriptTextOutput');
+      box.innerHTML = '';
+      if (currentSegments.length) {
+        currentSegments.forEach((s) => {
+          const span = document.createElement('span');
+          span.textContent = s.text + ' ';
+          span.className = 'cursor-pointer hover:bg-emerald-500/20 rounded px-0.5';
+          span.title = `${(s.start_ms / 1000).toFixed(1)}s`;
+          span.addEventListener('click', () => {
+            const player = $('audioPlayer');
+            if (player.src) { player.currentTime = s.start_ms / 1000; player.play().catch(() => {}); }
+          });
+          box.appendChild(span);
+        });
+      } else {
+        box.textContent = currentText;
+      }
+    }
+
     function runSummary(text, style) {
-      if (!text.trim()) return;
-      const c = document.getElementById('selectSummaryEngine').value;
+      if (!text || !text.trim()) return;
+      const c = $('selectSummaryEngine').value;
       const w = initWorker();
       if (c === 'webllm-smol') w.postMessage({ type: 'summarize', engine: 'webllm', llmModelId: 'SmolLM2-1.7B-Instruct-q4f16_1-MLC', text, style });
       else if (c === 'webllm-qwen') w.postMessage({ type: 'summarize', engine: 'webllm', llmModelId: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', text, style });
       else w.postMessage({ type: 'summarize', engine: 'rust-extractive', text, style });
     }
 
+    // ---------------- Export ----------------
+    function download(name, content, mime) {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    function srtTime(ms) {
+      const h = String(Math.floor(ms / 3600000)).padStart(2, '0');
+      const m = String(Math.floor(ms / 60000) % 60).padStart(2, '0');
+      const s = String(Math.floor(ms / 1000) % 60).padStart(2, '0');
+      const mi = String(ms % 1000).padStart(3, '0');
+      return `${h}:${m}:${s},${mi}`;
+    }
+    function buildSrt() {
+      if (!currentSegments.length) return currentText;
+      return currentSegments.map((s, i) =>
+        `${i + 1}\n${srtTime(s.start_ms)} --> ${srtTime(s.end_ms || s.start_ms + 1000)}\n${s.text}\n`
+      ).join('\n');
+    }
+    function buildMd() {
+      let md = `# Trascrizione: ${currentName}\n\n${currentText}\n`;
+      const summary = $('summaryTextOutput').textContent;
+      if (summary && summary.trim()) md += `\n## Riassunto\n\n${summary}\n`;
+      return md;
+    }
+
+    // ---------------- Storico (IndexedDB) ----------------
+    let db = null;
+    function openDb() {
+      return new Promise((resolve) => {
+        const req = indexedDB.open('transcriber-history', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('items', { keyPath: 'id' });
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      });
+    }
+    async function saveToHistory(t) {
+      if (!db) db = await openDb();
+      if (!db) return;
+      const item = { id: Date.now(), name: currentName, date: new Date().toISOString(), text: t.text, segments: t.segments, language: t.language };
+      db.transaction('items', 'readwrite').objectStore('items').put(item);
+      renderHistory();
+    }
+    async function renderHistory() {
+      if (!db) db = await openDb();
+      if (!db) return;
+      const req = db.transaction('items', 'readonly').objectStore('items').getAll();
+      req.onsuccess = () => {
+        const items = (req.result || []).sort((a, b) => b.id - a.id).slice(0, 30);
+        const ul = $('historyList');
+        ul.innerHTML = '';
+        if (!items.length) { ul.innerHTML = '<li class="text-slate-500">Nessuna trascrizione salvata.</li>'; return; }
+        items.forEach((it) => {
+          const li = document.createElement('li');
+          li.className = 'flex justify-between items-center gap-2 border-b border-slate-800/60 py-1';
+          const label = document.createElement('button');
+          label.className = 'text-left flex-1 hover:text-emerald-300 truncate';
+          label.textContent = `${new Date(it.date).toLocaleString('it-IT')} • ${it.name} • ${it.text.slice(0, 60)}…`;
+          label.addEventListener('click', () => {
+            currentText = it.text; currentSegments = it.segments || []; currentName = it.name;
+            $('resultSection').classList.remove('hidden');
+            $('audioPlayer').classList.add('hidden');
+            renderTranscript();
+            $('transcriptMetrics').textContent = `Dallo storico • ${new Date(it.date).toLocaleString('it-IT')}`;
+            runSummary(currentText, currentStyle);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          });
+          const del = document.createElement('button');
+          del.className = 'text-rose-400 hover:underline shrink-0';
+          del.textContent = 'elimina';
+          del.addEventListener('click', () => {
+            db.transaction('items', 'readwrite').objectStore('items').delete(it.id);
+            renderHistory();
+          });
+          li.appendChild(label); li.appendChild(del);
+          ul.appendChild(li);
+        });
+      };
+    }
+
+    // ---------------- Registrazione microfono ----------------
+    async function toggleRecording() {
+      if (recording) {
+        mediaRecorder.stop();
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        recChunks = [];
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
+        mediaRecorder.onstop = () => {
+          stream.getTracks().forEach((tr) => tr.stop());
+          recording = false;
+          $('btnRecord').textContent = '● Registra dal microfono';
+          $('btnRecord').classList.replace('bg-emerald-600', 'bg-rose-500/90');
+          const blob = new Blob(recChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+          const file = new File([blob], `registrazione.${(mediaRecorder.mimeType || 'audio/webm').includes('webm') ? 'webm' : 'ogg'}`, { type: blob.type });
+          handleAudioFile(file);
+        };
+        mediaRecorder.start();
+        recording = true;
+        $('btnRecord').textContent = '■ Ferma registrazione';
+        $('btnRecord').classList.replace('bg-rose-500/90', 'bg-emerald-600');
+      } catch (err) {
+        showToast(`Microfono non disponibile: ${err.message}`, true);
+      }
+    }
+
+    // ---------------- Eventi ----------------
+    document.addEventListener('DOMContentLoaded', () => { initWorker(); renderHistory(); });
     initWorker();
-    document.getElementById('selectWhisperModel').addEventListener('change', () => initWorker().postMessage({ type: 'list-models' }));
-    document.getElementById('btnPreloadModel').addEventListener('click', () => initWorker().postMessage({ type: 'download-model', modelId: document.getElementById('selectWhisperModel').value }));
-    document.getElementById('btnReleaseRam').addEventListener('click', () => initWorker().postMessage({ type: 'release-memory' }));
-    document.getElementById('dropZone').addEventListener('click', (e) => { if (e.target.id !== 'btnDemoTest') document.getElementById('audioFileInput').click(); });
-    document.getElementById('audioFileInput').addEventListener('change', async (e) => {
-      const f = e.target.files?.[0];
-      if (!f) return;
-      liveSegs = [];
-      const buf = await f.arrayBuffer();
-      initWorker().postMessage({ type: 'transcribe', audioBuffer: buf, extensionHint: f.name.split('.').pop(), modelId: document.getElementById('selectWhisperModel').value, language: 'it', initialPrompt: document.getElementById('inputInitialPrompt').value, threads: recThreads }, [buf]);
+    renderHistory();
+
+    $('dropZone').addEventListener('click', (e) => {
+      if (['btnDemoTest', 'btnRecord'].includes(e.target.id)) return;
+      $('audioFileInput').click();
     });
-    document.getElementById('btnDemoTest').addEventListener('click', (e) => {
+    $('dropZone').addEventListener('dragover', (e) => { e.preventDefault(); });
+    $('dropZone').addEventListener('drop', (e) => {
+      e.preventDefault();
+      const f = e.dataTransfer.files?.[0];
+      if (f) handleAudioFile(f);
+    });
+    $('audioFileInput').addEventListener('change', (e) => {
+      const f = e.target.files?.[0];
+      if (f) handleAudioFile(f);
+    });
+    $('btnRecord').addEventListener('click', (e) => { e.stopPropagation(); toggleRecording(); });
+    $('btnReleaseRam').addEventListener('click', () => initWorker().postMessage({ type: 'release-memory' }));
+    $('btnCancel').addEventListener('click', () => {
+      // transformers.js non espone un abort pulito dell'inferenza: ricreiamo il worker.
+      if (worker) { worker.terminate(); worker = null; }
+      hideProgress();
+      showToast('Operazione annullata.');
+    });
+
+    $('btnSumBrief').addEventListener('click', () => { currentStyle = 'Brief'; runSummary(currentText, 'Brief'); });
+    $('btnSumPoints').addEventListener('click', () => { currentStyle = 'KeyPoints'; runSummary(currentText, 'KeyPoints'); });
+    $('btnCopyTranscript').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(currentText); showToast('Trascrizione copiata!'); }
+      catch { showToast('Copia non riuscita.', true); }
+    });
+    $('btnExportTxt').addEventListener('click', () => download(`${currentName}.txt`, currentText, 'text/plain'));
+    $('btnExportMd').addEventListener('click', () => download(`${currentName}.md`, buildMd(), 'text/markdown'));
+    $('btnExportSrt').addEventListener('click', () => download(`${currentName}.srt`, buildSrt(), 'application/x-subrip'));
+    $('btnClearHistory').addEventListener('click', async () => {
+      if (!db) db = await openDb();
+      if (db) { db.transaction('items', 'readwrite').objectStore('items').clear(); renderHistory(); }
+    });
+
+    $('btnDemoTest').addEventListener('click', (e) => {
       e.stopPropagation();
       currentText = "Giorgio, comunque io mi sono sentito contemporaneamente con tua mamma. Allora, abbiamo chiamato l'idraulico e viene sabato. Quindi sabato praticamente cambia il miscelatore, perché ci ha spiegato il tecnico che se quei rubinetti non possono scaricare l'acqua calda non possono fare la disinfestazione.";
-      document.getElementById('resultSection').classList.remove('hidden');
-      document.getElementById('transcriptTextOutput').textContent = currentText;
+      currentSegments = [];
+      currentName = 'demo';
+      $('resultSection').classList.remove('hidden');
+      $('audioPlayer').classList.add('hidden');
+      renderTranscript();
+      $('transcriptMetrics').textContent = 'Testo demo (nessun audio)';
       runSummary(currentText, currentStyle);
     });
-    document.getElementById('btnSumBrief').addEventListener('click', () => { currentStyle = 'Brief'; runSummary(currentText, 'Brief'); });
-    document.getElementById('btnSumPoints').addEventListener('click', () => { currentStyle = 'KeyPoints'; runSummary(currentText, 'KeyPoints'); });
-    document.getElementById('btnCopyTranscript').addEventListener('click', () => {
-      const ta = document.createElement('textarea'); ta.value = currentText; ta.style.position = 'fixed'; ta.style.top = '-9999px';
-      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-      showToast('Trascrizione copiata!');
-    });
+
+    // ---------------- Share Target (vocali condivisi da WhatsApp) ----------------
+    (async () => {
+      const params = new URLSearchParams(location.search);
+      if (params.get('share-target') === '1') {
+        try {
+          const res = await fetch('./shared-audio-file');
+          if (res.ok) {
+            const blob = await res.blob();
+            await fetch('./shared-audio-file', { method: 'DELETE' }).catch(() => {});
+            handleAudioFile(new File([blob], 'condiviso.opus', { type: blob.type || 'audio/ogg' }));
+            history.replaceState({}, '', './');
+          }
+        } catch (_) { /* no-op */ }
+      }
+    })();
   </script>
 </body>
 </html>
