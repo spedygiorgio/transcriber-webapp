@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#020617" />
+  <title>Transcriber Web • 100% Locale Rust WASM + Piccolo LLM</title>
+  <script src="./coi-serviceworker.js"></script>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased min-h-screen flex flex-col">
+  <header class="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
+    <div class="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between">
+      <div>
+        <h1 class="font-bold text-lg text-white">Transcriber Web (Zero-API • Rust WASM)</h1>
+        <p class="text-xs text-slate-400">100% locale nel browser • OPFS Cache • Adaptive Hardware Guard</p>
+      </div>
+      <button id="btnReleaseRam" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium">Libera RAM</button>
+    </div>
+  </header>
+
+  <main class="max-w-5xl w-full mx-auto px-4 py-6 flex-1 space-y-6">
+    <div id="toastBox" class="hidden rounded-2xl p-3.5 text-xs font-medium border"></div>
+
+    <section class="bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-bold uppercase text-slate-200">Profilo Hardware Rilevato & Guardia Memoria</h2>
+          <p id="hwSummaryText" class="text-xs text-slate-400 mt-0.5">Analisi dispositivo...</p>
+        </div>
+        <span id="hwTierBadge" class="px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">--</span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-800">
+        <div class="space-y-2">
+          <label class="block text-xs font-semibold text-slate-300">Modello Trascrizione Rust (transcriber-core)</label>
+          <select id="selectWhisperModel" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white">
+            <option value="tiny">ggml-tiny.bin (75 MB - Ideale &lt; 4GB RAM)</option>
+            <option value="base">ggml-base.bin (142 MB - Bilanciato leggero)</option>
+            <option value="small-q5_1" selected>ggml-small-q5_1.bin (181 MB - Consigliato per Italiano)</option>
+            <option value="small">ggml-small.bin (466 MB - Solo Desktop 8+ GB RAM)</option>
+          </select>
+          <div class="flex justify-between text-[11px] text-slate-400">
+            <span id="opfsStatusText">Cache OPFS: verifica...</span>
+            <button id="btnPreloadModel" class="text-emerald-400 hover:underline font-semibold">Pre-scarica in OPFS</button>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <label class="block text-xs font-semibold text-slate-300">Motore Riassunto 100% Locale (Zero API)</label>
+          <select id="selectSummaryEngine" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white">
+            <option value="rust-extractive">Kernel Rust TextRank (0 MB RAM • Istantaneo)</option>
+            <option value="webllm-smol">Piccolo LLM WebGPU: SmolLM2-1.7B-Instruct (~950 MB VRAM)</option>
+            <option value="webllm-qwen">Piccolo LLM WebGPU: Qwen2.5-1.5B-Instruct (~1.1 GB VRAM)</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 mb-1">Vocabolario Nomi Propri (initial_prompt)</label>
+        <input id="inputInitialPrompt" type="text" value="Giorgio, Fausta, Paderno, miscelatore, disinfestazione" class="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white" />
+      </div>
+    </section>
+
+    <section class="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-3">
+      <div id="dropZone" class="border-2 border-dashed border-slate-700 hover:border-emerald-500/70 bg-slate-950/60 rounded-2xl p-6 cursor-pointer space-y-3">
+        <h2 class="text-lg font-bold text-white">Trascina o scegli un vocale WhatsApp (.opus, .ogg, .m4a, .mp3, .wav)</h2>
+        <div class="flex justify-center gap-2.5">
+          <span class="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs">Scegli File Audio</span>
+          <button type="button" id="btnDemoTest" class="px-3.5 py-2 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 text-xs">Testa con Vocale Demo</button>
+        </div>
+        <input id="audioFileInput" type="file" accept=".opus,.ogg,.m4a,.mp3,.wav,.flac,.webm,audio/*" class="hidden" />
+      </div>
+      <div id="workerProgressBox" class="hidden p-4 rounded-2xl bg-slate-950 border border-emerald-500/30 space-y-2 text-left">
+        <div class="flex justify-between text-xs"><span id="workerStatusLabel" class="text-emerald-300">Inizializzazione...</span><span id="workerStatusPct" class="font-mono text-emerald-400">--</span></div>
+        <div class="w-full h-2 bg-slate-900 rounded-full overflow-hidden"><div id="workerProgressBar" class="h-full bg-emerald-500" style="width: 15%"></div></div>
+      </div>
+    </section>
+
+    <section id="resultSection" class="hidden space-y-5">
+      <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+        <div class="flex justify-between items-center pb-3 border-b border-slate-800">
+          <div><h3 class="font-bold text-white">Trascrizione Locale (Rust WASM)</h3><p id="transcriptMetrics" class="text-[11px] font-mono text-slate-400">--</p></div>
+          <button id="btnCopyTranscript" class="px-3.5 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs">Copia Trascrizione</button>
+        </div>
+        <p id="transcriptTextOutput" class="text-base text-slate-100 leading-relaxed"></p>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+        <div class="flex justify-between items-center pb-3 border-b border-slate-800">
+          <h3 class="font-bold text-white">Riassunto 100% Locale <span id="summaryEngineBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/20 text-purple-300">--</span></h3>
+          <div class="flex gap-1.5">
+            <button id="btnSumBrief" class="px-3 py-1 rounded-lg bg-slate-800 text-xs">Breve</button>
+            <button id="btnSumPoints" class="px-3 py-1 rounded-lg bg-purple-500 text-slate-950 font-bold text-xs">Punti Chiave</button>
+          </div>
+        </div>
+        <div id="summaryTextOutput" class="text-sm text-slate-200 whitespace-pre-line bg-slate-950 p-4 rounded-2xl border border-slate-800"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const ram = navigator.deviceMemory || 4;
+    const cores = navigator.hardwareConcurrency || 4;
+    const gpu = !!navigator.gpu;
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const recThreads = isMobile ? Math.min(4, Math.max(2, Math.floor(cores / 2))) : Math.min(6, Math.max(2, Math.floor(cores * 0.75)));
+    const recWhisper = (ram < 4 || (isMobile && ram <= 4)) ? 'tiny' : 'small-q5_1';
+    const recSum = (ram >= 8 && gpu && !isMobile) ? 'webllm-smol' : 'rust-extractive';
+
+    document.getElementById('hwTierBadge').textContent = `RAM ~${ram}GB • ${recThreads} Thread • ${gpu ? 'WebGPU' : 'CPU SIMD'}`;
+    document.getElementById('hwSummaryText').textContent = `Configurazione sicura selezionata: ggml-${recWhisper}.bin + ${recSum === 'rust-extractive' ? 'Rust TextRank (0 MB RAM)' : 'WebLLM WebGPU'}.`;
+    document.getElementById('selectWhisperModel').value = recWhisper;
+    document.getElementById('selectSummaryEngine').value = recSum;
+
+    let worker = null, currentText = '', currentStyle = 'KeyPoints', liveSegs = [];
+    function showToast(msg, err = false) {
+      const b = document.getElementById('toastBox');
+      b.textContent = msg;
+      b.className = `rounded-2xl p-3.5 text-xs font-medium border ${err ? 'bg-red-950/80 border-red-500/40 text-red-200' : 'bg-emerald-950/80 border-emerald-500/40 text-emerald-200'}`;
+      b.classList.remove('hidden');
+      setTimeout(() => b.classList.add('hidden'), 4500);
+    }
+
+    function initWorker() {
+      if (worker) return worker;
+      worker = new Worker('./worker.js', { type: 'module' });
+      worker.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'models-list') {
+          const sel = document.getElementById('selectWhisperModel').value;
+          const f = m.installed.find(x => x.id === sel);
+          document.getElementById('opfsStatusText').textContent = f ? `Cache OPFS: ggml-${sel}.bin pronto (${(f.sizeBytes / 1048576).toFixed(0)} MB)` : `Cache OPFS: ggml-${sel}.bin non scaricato`;
+        }
+        if (m.type === 'download-progress' || m.type === 'llm-progress') {
+          document.getElementById('workerProgressBox').classList.remove('hidden');
+          document.getElementById('workerStatusLabel').textContent = m.message || `Download ${m.modelId} su OPFS...`;
+          document.getElementById('workerStatusPct').textContent = `${m.percent}%`;
+          document.getElementById('workerProgressBar').style.width = `${m.percent}%`;
+        }
+        if (m.type === 'download-complete') { document.getElementById('workerProgressBox').classList.add('hidden'); showToast(`Modello ggml-${m.modelId}.bin salvato su OPFS!`); }
+        if (m.type === 'live-segment') {
+          liveSegs.push(m.segment);
+          document.getElementById('resultSection').classList.remove('hidden');
+          document.getElementById('transcriptTextOutput').textContent = liveSegs.map(s => s.text).join(' ');
+        }
+        if (m.type === 'transcription-done') {
+          document.getElementById('workerProgressBox').classList.add('hidden');
+          currentText = m.transcript.text;
+          document.getElementById('resultSection').classList.remove('hidden');
+          document.getElementById('transcriptTextOutput').textContent = currentText;
+          document.getElementById('transcriptMetrics').textContent = `Audio: ${(m.transcript.audio_duration_ms / 1000).toFixed(1)}s • Inferenza: ${m.transcript.inference_ms}ms`;
+          runSummary(currentText, currentStyle);
+        }
+        if (m.type === 'summary-done') {
+          document.getElementById('workerProgressBox').classList.add('hidden');
+          document.getElementById('summaryTextOutput').textContent = m.summary;
+          document.getElementById('summaryEngineBadge').textContent = m.engineUsed;
+        }
+        if (m.type === 'memory-released') showToast('Memoria RAM / VRAM liberata.');
+        if (m.type === 'error') { document.getElementById('workerProgressBox').classList.add('hidden'); showToast(m.message, true); }
+      };
+      worker.postMessage({ type: 'list-models' });
+      return worker;
+    }
+
+    function runSummary(text, style) {
+      if (!text.trim()) return;
+      const c = document.getElementById('selectSummaryEngine').value;
+      const w = initWorker();
+      if (c === 'webllm-smol') w.postMessage({ type: 'summarize', engine: 'webllm', llmModelId: 'SmolLM2-1.7B-Instruct-q4f16_1-MLC', text, style });
+      else if (c === 'webllm-qwen') w.postMessage({ type: 'summarize', engine: 'webllm', llmModelId: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', text, style });
+      else w.postMessage({ type: 'summarize', engine: 'rust-extractive', text, style });
+    }
+
+    initWorker();
+    document.getElementById('selectWhisperModel').addEventListener('change', () => initWorker().postMessage({ type: 'list-models' }));
+    document.getElementById('btnPreloadModel').addEventListener('click', () => initWorker().postMessage({ type: 'download-model', modelId: document.getElementById('selectWhisperModel').value }));
+    document.getElementById('btnReleaseRam').addEventListener('click', () => initWorker().postMessage({ type: 'release-memory' }));
+    document.getElementById('dropZone').addEventListener('click', (e) => { if (e.target.id !== 'btnDemoTest') document.getElementById('audioFileInput').click(); });
+    document.getElementById('audioFileInput').addEventListener('change', async (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      liveSegs = [];
+      const buf = await f.arrayBuffer();
+      initWorker().postMessage({ type: 'transcribe', audioBuffer: buf, extensionHint: f.name.split('.').pop(), modelId: document.getElementById('selectWhisperModel').value, language: 'it', initialPrompt: document.getElementById('inputInitialPrompt').value, threads: recThreads }, [buf]);
+    });
+    document.getElementById('btnDemoTest').addEventListener('click', (e) => {
+      e.stopPropagation();
+      currentText = "Giorgio, comunque io mi sono sentito contemporaneamente con tua mamma. Allora, abbiamo chiamato l'idraulico e viene sabato. Quindi sabato praticamente cambia il miscelatore, perché ci ha spiegato il tecnico che se quei rubinetti non possono scaricare l'acqua calda non possono fare la disinfestazione.";
+      document.getElementById('resultSection').classList.remove('hidden');
+      document.getElementById('transcriptTextOutput').textContent = currentText;
+      runSummary(currentText, currentStyle);
+    });
+    document.getElementById('btnSumBrief').addEventListener('click', () => { currentStyle = 'Brief'; runSummary(currentText, 'Brief'); });
+    document.getElementById('btnSumPoints').addEventListener('click', () => { currentStyle = 'KeyPoints'; runSummary(currentText, 'KeyPoints'); });
+    document.getElementById('btnCopyTranscript').addEventListener('click', () => {
+      const ta = document.createElement('textarea'); ta.value = currentText; ta.style.position = 'fixed'; ta.style.top = '-9999px';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+      showToast('Trascrizione copiata!');
+    });
+  </script>
+</body>
+</html>

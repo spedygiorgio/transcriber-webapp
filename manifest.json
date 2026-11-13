@@ -1,0 +1,19 @@
+{
+  "name": "Transcriber Web • 100% Locale Rust WASM",
+  "short_name": "Transcriber",
+  "description": "Trascrive e riassume vocali WhatsApp 100% nel browser con Rust WASM e piccolo LLM locale.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#10b981",
+  "icons": [{ "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }],
+  "share_target": {
+    "action": "./share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [{ "name": "audio_file", "accept": ["audio/*", ".opus", ".ogg", ".m4a", ".mp3", ".wav", ".webm"] }]
+    }
+  }
+}
