@@ -131,7 +131,9 @@
     const gpu = !!navigator.gpu;
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const recWhisper = (ram < 4 || isMobile) ? 'tiny' : (ram >= 8 && !isMobile ? 'small' : 'base');
-    const recSum = (ram >= 8 && gpu && !isMobile) ? 'webllm-smol' : 'rust-extractive';
+    // Default sicuro e istantaneo: TextRank (0 download). WebLLM resta selezionabile
+    // ma scarica ~1 GB al primo uso, quindi non lo imponiamo come default.
+    const recSum = 'rust-extractive';
     const preferWebgpu = gpu;
 
     document.getElementById('hwTierBadge').textContent = `RAM ~${ram}GB • ${gpu ? 'WebGPU' : 'CPU/WASM'}`;
