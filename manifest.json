@@ -1,7 +1,7 @@
 {
-  "name": "Transcriber Web • 100% Locale Rust WASM",
+  "name": "Transcriber Web • 100% Locale",
   "short_name": "Transcriber",
-  "description": "Trascrive e riassume vocali WhatsApp 100% nel browser con Rust WASM e piccolo LLM locale.",
+  "description": "Trascrive e riassume vocali WhatsApp 100% nel browser con Whisper (WebGPU) e un piccolo LLM locale. Nessun dato lascia il dispositivo.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

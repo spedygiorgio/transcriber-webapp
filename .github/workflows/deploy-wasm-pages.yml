@@ -1,4 +1,8 @@
-name: Build Rust WASM & Deploy GitHub Pages
+name: Deploy GitHub Pages (static)
+
+# La webapp è 100% statica: la trascrizione gira nel browser con transformers.js
+# (Whisper ONNX su WebGPU/WASM). Non serve alcuna compilazione Rust/WASM né il
+# kernel transcriber-core: non c'è nulla da buildare, si pubblica la root così com'è.
 
 on:
   push:
@@ -15,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -24,32 +28,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure Git credentials for private transcriber-core (if private)
-        if: ${{ secrets.CORE_REPO_TOKEN != '' }}
-        run: |
-          git config --global url."https://x-access-token:${{ secrets.CORE_REPO_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Install Rust & wasm32-unknown-unknown
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Install wasm-pack & CMake/Clang (for whisper.cpp)
-        run: |
-          sudo apt-get update && sudo apt-get install -y cmake clang llvm
-          cargo install wasm-pack
-
-      - name: Compile transcriber-core to WebAssembly (+simd128)
-        env:
-          RUSTFLAGS: "-C target-feature=+simd128"
-          GGML_NATIVE: "OFF"
-        run: |
-          wasm-pack build transcriber-wasm --target web --release --out-dir ../pkg
-
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload Pages Artifact
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
