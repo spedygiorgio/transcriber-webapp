@@ -220,7 +220,9 @@ function summarizeExtractive(text, keyPoints) {
 }
 
 async function summarizeWithLocalWebLLM(text, style, llmModelId) {
-  const webllm = await import('https://esm.run/@mlc-ai/web-llm');
+  // jsDelivr (+esm) si comporta correttamente sotto COEP/CORP; esm.run no
+  // (l'import falliva con "Failed to fetch" sul sito pubblicato).
+  const webllm = await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2/+esm');
   if (!webLlmEngine || activeLlmModelId !== llmModelId) {
     if (webLlmEngine) { await webLlmEngine.unload(); webLlmEngine = null; }
     webLlmEngine = await webllm.CreateMLCEngine(llmModelId, {
