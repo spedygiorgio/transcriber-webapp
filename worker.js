@@ -132,6 +132,8 @@ async function transcribe(msg) {
     language: msg.language && msg.language !== 'auto' ? msg.language : undefined,
     task: 'transcribe',
     return_timestamps: true,
+    // Spezza i loop di ripetizione allucinati (es. "MUSANG MUSANG ...").
+    no_repeat_ngram_size: 3,
   });
 
   const inferenceMs = Math.round(performance.now() - t0);
