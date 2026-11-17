@@ -51,21 +51,33 @@ function isInventedText(text) {
   return INVENTED_LINES.includes(t);
 }
 
+// Precisione per backend.
+// - WebGPU: encoder fp32 + decoder q4. I file q8 usano operatori che il backend
+//   WebGPU non supporta: ripiegano sulla CPU con continui trasferimenti
+//   GPU<->CPU e l'inferenza diventa lentissima (o sembra bloccata).
+// - WASM (CPU): q8 è veloce e leggero.
+function dtypeFor(device) {
+  return device === 'webgpu'
+    ? { encoder_model: 'fp32', decoder_model_merged: 'q4' }
+    : 'q8';
+}
+
 async function getTranscriber(modelId, preferWebgpu) {
-  if (asr && asrModelId === modelId) return asr;
+  const hasWebgpu = typeof navigator !== 'undefined' && !!navigator.gpu;
+  const wantDevice = preferWebgpu && hasWebgpu ? 'webgpu' : 'wasm';
+  const key = `${modelId}:${wantDevice}`;
+
+  if (asr && asrModelId === key) return asr;
   if (asr) {
     try { await asr.dispose?.(); } catch (_) { /* no-op */ }
     asr = null;
     asrModelId = null;
   }
 
-  const hasWebgpu = typeof navigator !== 'undefined' && !!navigator.gpu;
-  const wantDevice = preferWebgpu && hasWebgpu ? 'webgpu' : 'wasm';
-
   const build = (device) =>
     pipeline('automatic-speech-recognition', MODEL_IDS[modelId], {
       device,
-      dtype: 'q8', // buon compromesso dimensione/qualità, valido su WebGPU e WASM
+      dtype: dtypeFor(device),
       progress_callback: (p) => {
         if (p.status === 'progress') {
           self.postMessage({
@@ -94,7 +106,9 @@ async function getTranscriber(modelId, preferWebgpu) {
     }
   }
 
-  asrModelId = modelId;
+  // La chiave include il backend richiesto: se WebGPU ha ripiegato su WASM,
+  // la richiesta successiva non deve ricostruire inutilmente il modello.
+  asrModelId = key;
   self.postMessage({ type: 'model-ready', modelId, device: asrDevice });
   return asr;
 }
@@ -132,8 +146,6 @@ async function transcribe(msg) {
     language: msg.language && msg.language !== 'auto' ? msg.language : undefined,
     task: 'transcribe',
     return_timestamps: true,
-    // Spezza i loop di ripetizione allucinati (es. "MUSANG MUSANG ...").
-    no_repeat_ngram_size: 3,
   });
 
   const inferenceMs = Math.round(performance.now() - t0);
