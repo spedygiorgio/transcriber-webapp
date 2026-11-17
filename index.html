@@ -33,15 +33,23 @@
         <span id="hwTierBadge" class="px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">--</span>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-slate-800">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-800">
         <div class="space-y-2">
           <label class="block text-xs font-semibold text-slate-300">Modello Whisper (ONNX)</label>
           <select id="selectWhisperModel" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white">
-            <option value="tiny">whisper-tiny (~40 MB • veloce, mobile)</option>
-            <option value="base" selected>whisper-base (~80 MB • bilanciato)</option>
-            <option value="small">whisper-small (~250 MB • qualità • desktop)</option>
+            <option value="tiny">whisper-tiny (~120 MB, CPU ~40)</option>
+            <option value="base" selected>whisper-base (~210 MB, CPU ~80)</option>
+            <option value="small">whisper-small (~590 MB, CPU ~250)</option>
           </select>
           <span id="opfsStatusText" class="block text-[11px] text-slate-400">Cache: verifica al primo uso</span>
+        </div>
+
+        <div class="space-y-2">
+          <label class="block text-xs font-semibold text-slate-300">Backend di calcolo</label>
+          <select id="selectBackend" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white">
+            <option value="auto" selected>Automatico (WebGPU se disponibile)</option>
+            <option value="wasm">Solo CPU (WASM, più compatibile)</option>
+          </select>
         </div>
 
         <div class="space-y-2">
@@ -134,7 +142,8 @@
     // Default sicuro e istantaneo: TextRank (0 download). WebLLM resta selezionabile
     // ma scarica ~1 GB al primo uso, quindi non lo imponiamo come default.
     const recSum = 'rust-extractive';
-    const preferWebgpu = gpu;
+    // Il selettore "Backend" può forzare la CPU (WASM); di default WebGPU se presente.
+    const wantWebgpu = () => gpu && $('selectBackend').value !== 'wasm';
 
     document.getElementById('hwTierBadge').textContent = `RAM ~${ram}GB • ${gpu ? 'WebGPU' : 'CPU/WASM'}`;
     document.getElementById('hwSummaryText').textContent =
@@ -143,6 +152,7 @@
     document.getElementById('selectSummaryEngine').value = recSum;
 
     // ---------------- Stato ----------------
+    let currentDevice = null, tTimer = null, tStart = 0;
     let worker = null, currentText = '', currentSegments = [], currentStyle = 'KeyPoints';
     let currentAudioUrl = null, currentName = 'vocale';
     let mediaRecorder = null, recChunks = [], recording = false;
@@ -164,6 +174,22 @@
     }
     function hideProgress() { $('workerProgressBox').classList.add('hidden'); }
 
+    // Feedback durante l'inferenza (transformers.js non emette progressi):
+    // tempo trascorso + suggerimento se sembra bloccato su WebGPU.
+    function clearTimers() { if (tTimer) { clearInterval(tTimer); tTimer = null; } }
+    function startTranscribeTimers() {
+      clearTimers();
+      tStart = Date.now();
+      tTimer = setInterval(() => {
+        const sec = Math.round((Date.now() - tStart) / 1000);
+        let label = `Trascrizione in corso... ${sec}s (${currentDevice || '?'})`;
+        if (sec > 90 && currentDevice === 'webgpu') {
+          label += ' — sembra lenta: premi Annulla e scegli "Solo CPU (WASM)" in Backend.';
+        }
+        $('workerStatusLabel').textContent = label;
+      }, 1000);
+    }
+
     // ---------------- Worker ----------------
     function initWorker() {
       if (worker) return worker;
@@ -171,8 +197,8 @@
       worker.onmessage = (e) => {
         const m = e.data;
         if (m.type === 'model-progress') setProgress(`Download modello (${m.file || ''})...`, m.percent, true);
-        else if (m.type === 'model-ready') { $('opfsStatusText').textContent = `Modello pronto • backend: ${m.device}`; }
-        else if (m.type === 'transcribe-started') setProgress('Trascrizione in corso...', null, true);
+        else if (m.type === 'model-ready') { currentDevice = m.device; $('opfsStatusText').textContent = `Modello pronto • backend: ${m.device}`; }
+        else if (m.type === 'transcribe-started') { setProgress('Trascrizione in corso...', null, true); startTranscribeTimers(); }
         else if (m.type === 'llm-progress') setProgress(m.message || 'Download LLM...', m.percent, false);
         else if (m.type === 'notice') showToast(m.message);
         else if (m.type === 'transcription-done') onTranscriptionDone(m.transcript);
@@ -182,7 +208,7 @@
           $('summaryEngineBadge').textContent = m.engineUsed;
         }
         else if (m.type === 'memory-released') { showToast('Memoria liberata.'); }
-        else if (m.type === 'error') { hideProgress(); showToast(m.message, true); }
+        else if (m.type === 'error') { clearTimers(); hideProgress(); showToast(m.message, true); }
       };
       return worker;
     }
@@ -273,7 +299,7 @@
           audio,
           modelId: $('selectWhisperModel').value,
           language: $('selectLanguage').value,
-          preferWebgpu,
+          preferWebgpu: wantWebgpu(),
         }, [audio.buffer]);
       } catch (err) {
         hideProgress();
@@ -282,6 +308,7 @@
     }
 
     function onTranscriptionDone(t) {
+      clearTimers();
       hideProgress();
       currentText = t.text;
       currentSegments = t.segments || [];
@@ -455,9 +482,14 @@
     });
     $('btnRecord').addEventListener('click', (e) => { e.stopPropagation(); toggleRecording(); });
     $('btnReleaseRam').addEventListener('click', () => initWorker().postMessage({ type: 'release-memory' }));
+    $('selectBackend').addEventListener('change', () => {
+      if (worker) { worker.terminate(); worker = null; }
+    });
+
     $('btnCancel').addEventListener('click', () => {
       // transformers.js non espone un abort pulito dell'inferenza: ricreiamo il worker.
       if (worker) { worker.terminate(); worker = null; }
+      clearTimers();
       hideProgress();
       showToast('Operazione annullata.');
     });
