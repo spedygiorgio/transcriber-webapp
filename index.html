@@ -101,6 +101,7 @@
             <p id="transcriptMetrics" class="text-[11px] font-mono text-slate-400">--</p>
           </div>
           <div class="flex gap-1.5 flex-wrap">
+            <button id="btnShareTranscript" type="button" class="px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs">↗ Condividi</button>
             <button id="btnCopyTranscript" class="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs">Copia</button>
             <button id="btnExportTxt" class="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs">.txt</button>
             <button id="btnExportMd" class="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs">.md</button>
@@ -499,6 +500,23 @@
     $('btnCopyTranscript').addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(currentText); showToast('Trascrizione copiata!'); }
       catch { showToast('Copia non riuscita.', true); }
+    });
+    // Condividi: foglio di condivisione nativo (Web Share API). Dove non è
+    // disponibile (es. Firefox desktop, contesto non sicuro) ripiega sulla copia.
+    $('btnShareTranscript').addEventListener('click', async () => {
+      const text = (currentText || '').trim();
+      if (!text) { showToast('Niente da condividere.', true); return; }
+      const payload = { title: `Trascrizione: ${currentName}`, text };
+      if (navigator.share && (!navigator.canShare || navigator.canShare(payload))) {
+        try { await navigator.share(payload); }
+        catch (err) {
+          if (err && err.name === 'AbortError') return; // l'utente ha chiuso il foglio
+          showToast('Condivisione non riuscita.', true);
+        }
+        return;
+      }
+      try { await navigator.clipboard.writeText(text); showToast('Condivisione non supportata: trascrizione copiata negli appunti.'); }
+      catch { showToast('Condivisione non supportata da questo browser.', true); }
     });
     $('btnExportTxt').addEventListener('click', () => download(`${currentName}.txt`, currentText, 'text/plain'));
     $('btnExportMd').addEventListener('click', () => download(`${currentName}.md`, buildMd(), 'text/markdown'));
